@@ -1,0 +1,991 @@
+import pygame
+import sys
+import math
+import random
+import os 
+
+# ------------------------------------
+# 遊戲全局常量
+# ------------------------------------
+SCREEN_WIDTH = 600
+SCREEN_HEIGHT = 800
+FPS = 60
+
+# 泡泡設定
+BUBBLE_RADIUS = 20
+BUBBLE_DIAMETER = BUBBLE_RADIUS * 2
+ROWS = 15 
+COLS = 15 
+PUSH_FREQUENCY = 5 
+GRAVITY = 0.5    
+
+# 顏色與特殊泡泡定義
+COLOR_OPTIONS = [
+    (255, 69, 0),     # 亮橙紅
+    (50, 205, 50),    # 萊姆綠
+    (30, 144, 255),  # 寶石藍
+    (255, 255, 51),  # 霓虹黃
+    (255, 20, 147),  # 深粉紅
+    (0, 255, 255)    # 青色/水藍
+]
+# 特殊泡泡顏色調整
+BOMB_COLOR = (200, 200, 200)    # 炸彈基色
+RAINBOW_COLOR = (255, 105, 180) # 彩虹基色
+SHIFTER_COLOR = (255, 255, 0)   # 變色黃 (用於初始標記)
+
+SPECIAL_COLORS = [BOMB_COLOR, RAINBOW_COLOR, SHIFTER_COLOR] 
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (150, 150, 150)
+RED = (200, 50, 50)
+BLUE = (50, 50, 200)
+
+# 道具定義
+POWER_UP_TYPES = {
+    "BOMB": ((255, 100, 0), "B"),    
+    "HAMMER": ((0, 100, 255), "H")    
+}
+POWER_UP_AREA_Y = SCREEN_HEIGHT - 120 
+
+# 遊戲狀態機
+class GameState:
+    MENU = 0
+    PLAYING = 1
+    PAUSED = 2
+    GAMEOVER = 3
+
+# ------------------------------------
+# PowerUp 類別
+# ------------------------------------
+class PowerUp:
+    def __init__(self, type_name, pos_index, font):
+        self.type = type_name
+        self.color, self.label = POWER_UP_TYPES[type_name] 
+        self.font = font
+        
+        self.pos_index = pos_index 
+        
+        # 初始矩形 (將在 setup_power_ups 中被覆蓋)
+        x = SCREEN_WIDTH // 2 - 100 + pos_index * 60
+        self.rect = pygame.Rect(x, POWER_UP_AREA_Y, 50, 50)
+        self.center = self.rect.center
+
+    def draw(self, screen):
+        """繪製道具按鈕 (彩色方塊和文字)"""
+        # 繪製外框 (為了讓數量顯示更清晰)
+        pygame.draw.rect(screen, self.color, self.rect, border_radius=5)
+        
+        label_surf = self.font.render(self.label, True, WHITE)
+        label_rect = label_surf.get_rect(center=self.center)
+        screen.blit(label_surf, label_rect)
+
+# ------------------------------------
+# Bubble 類別
+# ------------------------------------
+class Bubble(pygame.sprite.Sprite):
+    def __init__(self, color, row, col, is_static=False):
+        super().__init__()
+        self.color = color
+        self.row = row
+        self.col = col
+        self.is_static = is_static
+        self.is_falling = False  
+        self.gravity = GRAVITY     
+        self.fall_speed = 0        
+        
+        self.is_bomb = (color == BOMB_COLOR)
+        self.is_rainbow = (color == RAINBOW_COLOR)
+        self.is_shifter = (color == SHIFTER_COLOR)
+        self.shifter_timer = 0 
+        
+        self.rect = pygame.Rect(0, 0, BUBBLE_DIAMETER, BUBBLE_DIAMETER)
+        self.vel_x = 0
+        self.vel_y = 0
+        self.update_position()
+
+    def update_position(self):
+        """計算泡泡的像素位置 (實現蜂巢狀網格)"""
+        x_offset = 0 if self.row % 2 == 0 else BUBBLE_RADIUS 
+        x = self.col * BUBBLE_DIAMETER + x_offset + BUBBLE_RADIUS
+        y = self.row * int(BUBBLE_DIAMETER * 0.866) + BUBBLE_RADIUS 
+        self.rect.center = (x, y)
+        self.center = self.rect.center
+
+    def draw(self, screen):
+        """在螢幕上繪製泡泡，包含光影效果"""
+        
+        # 1. 繪製主體 (圓形)
+        draw_color = self.color
+        if self.is_shifter:
+             # 讓變色泡泡在幾種顏色間快速切換
+            time_ms = pygame.time.get_ticks()
+            current_index = (time_ms // 100) % len(COLOR_OPTIONS)
+            draw_color = COLOR_OPTIONS[current_index]
+            
+        pygame.draw.circle(screen, draw_color, self.center, BUBBLE_RADIUS)
+        
+        # 2. 繪製光影效果 (立體感)
+        highlight_color = WHITE
+        highlight_radius = BUBBLE_RADIUS // 2
+        highlight_center = (self.center[0] - BUBBLE_RADIUS // 3, self.center[1] - BUBBLE_RADIUS // 3)
+        
+        pygame.draw.circle(screen, highlight_color, highlight_center, highlight_radius, 0)
+        pygame.draw.circle(screen, WHITE, highlight_center, BUBBLE_RADIUS // 5, 0)
+
+        
+        # 3. 繪製特殊標記
+        if self.is_bomb:
+            pygame.draw.line(screen, BLACK, (self.center[0] - 10, self.center[1] - 10), (self.center[0] + 10, self.center[1] + 10), 3)
+            pygame.draw.line(screen, BLACK, (self.center[0] + 10, self.center[1] - 10), (self.center[0] - 10, self.center[1] + 10), 3)
+        elif self.is_rainbow:
+            pygame.draw.circle(screen, WHITE, self.center, BUBBLE_RADIUS // 3)
+        elif self.is_shifter:
+            font = pygame.font.SysFont('Arial', BUBBLE_RADIUS + 5, bold=True)
+            text_surf = font.render("?", True, BLACK)
+            text_rect = text_surf.get_rect(center=self.center)
+            screen.blit(text_surf, text_rect)
+
+# ------------------------------------
+# Game 類別：遊戲主邏輯
+# ------------------------------------
+class Game:
+    def __init__(self):
+        # 1. 初始化 Pygame 模組 
+        pygame.init()
+        
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Pygame Bubble Shooter")
+        self.clock = pygame.time.Clock()
+        
+        # 2. 字體定義
+        self.score_font = pygame.font.SysFont('Arial', 24)
+        self.title_font = pygame.font.SysFont('Arial', 48, bold=True)
+        self.button_font = pygame.font.SysFont('Arial', 32)
+        
+        # ⭐ 2.5 背景音樂載入
+        pygame.mixer.init()
+        self.background_music = None
+        try:
+            # 載入背景音樂 (請替換為您實際的音樂檔名，例如 'bgm.mp3' 或 'music.ogg')
+            # 假設檔名為 'bgm.mp3'
+            pygame.mixer.music.load('bgm.mp3') 
+            self.background_music = True # 標記為載入成功
+        except pygame.error as e:
+            print(f"警告：背景音樂檔案載入失敗。請確認 'bgm.mp3' 檔案存在。錯誤: {e}")
+            self.background_music = False
+
+
+        # 3. 遊戲狀態管理
+        self.current_state = GameState.MENU
+        
+        # 4. 遊戲狀態變數
+        self.score = 0 
+        self.shots_since_push = 0 
+        self.running = True
+        
+        # 時限模式變數
+        self.GAME_TIME_LIMIT = 120 
+        self.time_left = self.GAME_TIME_LIMIT
+        self.last_time_check = pygame.time.get_ticks()
+
+        # 道具管理
+        self.INITIAL_POWER_UP_COUNT = 2 
+        self.power_up_counts = {"BOMB": self.INITIAL_POWER_UP_COUNT, "HAMMER": self.INITIAL_POWER_UP_COUNT} 
+        self.power_up_objects = [] 
+        self.hammer_mode = False 
+        
+        # 道具通知管理
+        self.notification_text = None
+        self.notification_timer = 0
+        
+        # 5. 遊戲初始化
+        self.reset_game()
+
+    def reset_game(self):
+        """重置所有遊戲狀態變數，準備開始新遊戲"""
+        self.grid = [] 
+        self.shooter_bubble = None 
+        self.next_bubble_color = None 
+        self.is_shooting = False
+        self.score = 0 
+        self.shots_since_push = 0 
+        self.falling_bubbles = [] 
+        self.time_left = self.GAME_TIME_LIMIT
+        self.last_time_check = pygame.time.get_ticks()
+        
+        # 重置道具
+        self.power_up_counts = {"BOMB": self.INITIAL_POWER_UP_COUNT, "HAMMER": self.INITIAL_POWER_UP_COUNT} 
+        self.hammer_mode = False
+        
+        # 重置通知
+        self.notification_text = None
+        
+        self.setup_power_ups()
+        self.setup_grid()
+        self.new_shooter_bubble()
+
+    def setup_power_ups(self):
+        """初始化道具欄位並設定左右排版"""
+        self.power_up_objects = []
+        
+        # 道具左右佈局的位置中心點
+        positions = {
+            "BOMB": SCREEN_WIDTH // 2 - 150,    
+            "HAMMER": SCREEN_WIDTH // 2 + 100   
+        }
+        
+        for type_name in ["BOMB", "HAMMER"]:
+            x = positions[type_name]
+            y = POWER_UP_AREA_Y
+            rect = pygame.Rect(x, y, 50, 50)
+            
+            # 創建 PowerUp 實例並覆蓋位置
+            power_up = PowerUp(type_name, 0, self.score_font) 
+            power_up.rect = rect
+            power_up.center = rect.center
+            self.power_up_objects.append(power_up)
+
+    def setup_grid(self):
+        """初始化網格泡泡，並隨機生成特殊泡泡"""
+        for r in range(ROWS):
+            row_list = []
+            for c in range(COLS):
+                if r < 5: 
+                    if r % 2 != 0 and c == COLS - 1:
+                        bubble = None
+                    else:
+                        rand = random.random()
+                        # 隨機生成特殊泡泡
+                        if rand < 0.02: 
+                             color = BOMB_COLOR
+                        elif rand < 0.04:
+                             color = RAINBOW_COLOR
+                        elif rand < 0.06: 
+                             color = SHIFTER_COLOR
+                        else:
+                            color = random.choice(COLOR_OPTIONS[:4])
+                            
+                        bubble = Bubble(color, r, c, is_static=True)
+                else:
+                    bubble = None
+                row_list.append(bubble)
+            self.grid.append(row_list)
+            
+    def new_shooter_bubble(self):
+        """生成新的發射泡泡並更新下一個泡泡的顏色"""
+        if self.next_bubble_color is None:
+            self.next_bubble_color = random.choice(COLOR_OPTIONS)
+        
+        color = self.next_bubble_color
+        
+        self.shooter_bubble = Bubble(color, -1, -1) 
+        self.shooter_bubble.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50)
+        self.shooter_bubble.center = self.shooter_bubble.rect.center
+        
+        # 下一個泡泡有小機率為特殊泡泡 (發射區不生成變色)
+        rand = random.random()
+        if rand < 0.03:
+            self.next_bubble_color = random.choice([BOMB_COLOR, RAINBOW_COLOR])
+        else:
+            self.next_bubble_color = random.choice(COLOR_OPTIONS)
+
+    def swap_bubbles(self):
+        """交換當前發射泡泡和下一個預覽泡泡的顏色"""
+        if not self.is_shooting and self.shooter_bubble and self.next_bubble_color:
+            current_color = self.shooter_bubble.color
+            self.shooter_bubble.color = self.next_bubble_color
+            self.next_bubble_color = current_color
+            
+            # 更新屬性旗幟
+            self.shooter_bubble.is_bomb = (self.shooter_bubble.color == BOMB_COLOR)
+            self.shooter_bubble.is_rainbow = (self.shooter_bubble.color == RAINBOW_COLOR)
+            self.shooter_bubble.is_shifter = False 
+
+    def get_neighbors(self, r, c):
+        """返回給定 (r, c) 泡泡的六個鄰近網格座標 (蜂巢狀邏輯)"""
+        neighbors = []
+        is_odd = r % 2 != 0
+
+        neighbors.append((r - 1, c))    # 上
+        neighbors.append((r + 1, c))    # 下
+        neighbors.append((r, c - 1))    # 左
+        neighbors.append((r, c + 1))    # 右
+
+        if is_odd:
+            neighbors.append((r - 1, c + 1)) # 右上
+            neighbors.append((r + 1, c + 1)) # 右下
+        else:
+            neighbors.append((r - 1, c - 1)) # 左上
+            neighbors.append((r + 1, c - 1)) # 左下
+            
+        return neighbors
+
+    def get_nearest_grid_position(self, x, y):
+        """計算給定像素座標 (x, y) 最接近的網格 (row, col) 位置"""
+        r = int(y / (BUBBLE_DIAMETER * 0.866))
+        r = max(0, min(ROWS - 1, r))
+
+        x_offset = BUBBLE_RADIUS if r % 2 != 0 else 0
+        
+        c = int((x - x_offset) / BUBBLE_DIAMETER)
+        c = max(0, min(COLS - 1, c))
+
+        return r, c
+
+    def check_for_matches(self, r, c, target_color):
+        """使用 BFS 查找所有連接的同色泡泡 (考慮彩虹泡泡和變色泡泡)"""
+        if self.grid[r][c] is None:
+            return []
+            
+        queue = [(r, c)]
+        visited = set([(r, c)])
+        matched_bubbles = []
+
+        while queue:
+            curr_r, curr_c = queue.pop(0)
+            matched_bubbles.append((curr_r, curr_c))
+
+            for next_r, next_c in self.get_neighbors(curr_r, curr_c):
+                if 0 <= next_r < ROWS and 0 <= next_c < COLS:
+                    neighbor = self.grid[next_r][next_c]
+                    
+                    if neighbor and (next_r, next_c) not in visited:
+                        # 匹配邏輯：顏色匹配 或 鄰居是彩虹泡泡 或 鄰居是變色泡泡
+                        is_match = (neighbor.color == target_color or neighbor.is_rainbow or neighbor.is_shifter)
+                        
+                        if is_match:
+                            visited.add((next_r, next_c))
+                            queue.append((next_r, next_c))
+                        
+        return matched_bubbles
+    
+    def trigger_bomb(self, r, c):
+        """消除炸彈泡泡及其周圍的所有鄰居"""
+        
+        bubbles_to_clear = set([(r, c)])
+        
+        for r_n, c_n in self.get_neighbors(r, c):
+            if 0 <= r_n < ROWS and 0 <= c_n < COLS and self.grid[r_n][c_n]:
+                bubbles_to_clear.add((r_n, c_n))
+                
+        cleared_any = False
+        for r_clear, c_clear in bubbles_to_clear:
+            bubble = self.grid[r_clear][c_clear]
+            if bubble:
+                bubble.is_falling = True
+                bubble.is_static = False
+                self.falling_bubbles.append(bubble)
+                self.grid[r_clear][c_clear] = None
+                self.score += 20 
+                cleared_any = True
+                
+        if cleared_any:
+            # 炸彈引起的掉落
+            self.check_for_floating_bubbles()
+
+    def spawn_power_up(self, power_up_type):
+        """給予指定道具，並在螢幕上顯示通知"""
+        self.power_up_counts[power_up_type] += 1
+        self.setup_power_ups() 
+        
+        # 設置螢幕中央通知
+        self.notification_text = f"🎉 恭喜獲得 {power_up_type} 道具！"
+        self.notification_timer = pygame.time.get_ticks() 
+        
+        print(f"🎉 獲得 {power_up_type} 道具！當前數量: {self.power_up_counts[power_up_type]}")
+
+    def clear_matches(self, matches):
+        """從網格中移除匹配的泡泡，並觸發掉落動畫"""
+        
+        if len(matches) >= 3:
+            cleared_count = 0
+            
+            for r, c in matches:
+                bubble = self.grid[r][c]
+                if bubble: 
+                    bubble.is_falling = True
+                    bubble.is_static = False
+                    self.falling_bubbles.append(bubble)
+                    self.grid[r][c] = None 
+                    cleared_count += 1
+            
+            self.score += cleared_count * 10 
+            
+            # 【道具掉落判斷】
+            if cleared_count >= 5 and random.random() < 0.20:
+                power_up_type = random.choice(["BOMB", "HAMMER"]) 
+                self.spawn_power_up(power_up_type)
+            
+            return cleared_count > 0 
+        return False
+
+    def check_for_floating_bubbles(self):
+        """檢查並消除未連接到頂部邊界的懸掛泡泡 (掉落得分)"""
+        visited = set()
+        queue = []
+        for c in range(COLS):
+            if self.grid[0][c] is not None:
+                queue.append((0, c))
+                visited.add((0, c))
+        
+        while queue:
+            curr_r, curr_c = queue.pop(0)
+            for next_r, next_c in self.get_neighbors(curr_r, curr_c):
+                if 0 <= next_r < ROWS and 0 <= next_c < COLS and (next_r, next_c) not in visited:
+                    neighbor = self.grid[next_r][next_c]
+                    if neighbor:
+                        visited.add((next_r, next_c))
+                        queue.append((next_r, next_c))
+                        
+        dropped_count = 0
+        for r in range(ROWS):
+            for c in range(COLS):
+                if self.grid[r][c] is not None and (r, c) not in visited:
+                    bubble = self.grid[r][c]
+                    bubble.is_falling = True
+                    bubble.is_static = False
+                    self.falling_bubbles.append(bubble)
+                    self.grid[r][c] = None 
+                    dropped_count += 1
+        
+        if dropped_count > 0:
+            self.score += dropped_count * 50
+
+    def push_new_row(self):
+        """將所有泡泡向下推動一行，並在頂部新增一排隨機泡泡"""
+        last_grid_row_index = ROWS - 1
+        # 檢查遊戲是否結束
+        for c in range(COLS):
+            if self.grid[last_grid_row_index - 1][c] is not None:
+                 print("遊戲結束：泡泡到達底部發射區！")
+                 self.current_state = GameState.GAMEOVER 
+                 return
+
+        # 向下推動
+        for r in range(ROWS - 1, 0, -1):
+            for c in range(COLS):
+                if self.grid[r-1][c] is not None:
+                    self.grid[r-1][c].row = r
+                    self.grid[r-1][c].update_position()
+                self.grid[r][c] = self.grid[r-1][c]
+
+        # 生成新的一行
+        new_row = []
+        possible_colors = [b.color for r_list in self.grid for b in r_list if b]
+        if not possible_colors:
+             possible_colors = COLOR_OPTIONS[:4] 
+        
+        for c in range(COLS):
+            rand = random.random()
+            if rand < 0.02: 
+                 color = BOMB_COLOR
+            elif rand < 0.04:
+                 color = RAINBOW_COLOR
+            elif rand < 0.06:
+                 color = SHIFTER_COLOR
+            else:
+                color = random.choice(possible_colors)
+            
+            new_bubble = Bubble(color, 0, c, is_static=True)
+            new_row.append(new_bubble)
+            
+        self.grid[0] = new_row
+        
+    # --- 道具函數 ---
+    def activate_power_up(self, type_name):
+        """根據類型啟動道具效果"""
+        if self.power_up_counts[type_name] > 0:
+            if type_name == "BOMB":
+                self.use_bomb_power_up()
+                self.power_up_counts["BOMB"] -= 1
+                
+            elif type_name == "HAMMER":
+                self.hammer_mode = True
+                
+            self.setup_power_ups() # 更新顯示
+
+    def use_bomb_power_up(self, radius=3):
+        """使用道具：消除網格中央區域的泡泡"""
+        center_r, center_c = ROWS // 3, COLS // 2 
+        
+        cells_to_clear = set()
+        for r_offset in range(-radius, radius + 1):
+            for c_offset in range(-radius, radius + 1):
+                r = center_r + r_offset
+                c = center_c + c_offset
+                if 0 <= r < ROWS and 0 <= c < COLS:
+                    cells_to_clear.add((r, c))
+
+        cleared_any = False
+        for r, c in cells_to_clear:
+            bubble = self.grid[r][c]
+            if bubble:
+                bubble.is_falling = True
+                bubble.is_static = False
+                self.falling_bubbles.append(bubble)
+                self.grid[r][c] = None
+                self.score += 50
+                cleared_any = True
+                
+        if cleared_any:
+            self.check_for_floating_bubbles()
+
+    def use_hammer(self, r, c):
+        """使用道具：移除指定單個泡泡"""
+        if self.power_up_counts["HAMMER"] > 0:
+            bubble = self.grid[r][c]
+            if bubble:
+                bubble.is_falling = True
+                bubble.is_static = False
+                self.falling_bubbles.append(bubble)
+                self.grid[r][c] = None
+                
+                self.score += 30 
+                
+                self.check_for_floating_bubbles()
+            
+            self.power_up_counts["HAMMER"] -= 1
+            self.hammer_mode = False
+            self.setup_power_ups()
+    
+    # --- 輸入處理 ---
+    def handle_input(self):
+        """處理所有遊戲狀態下的滑鼠和鍵盤輸入"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            
+            # --- 處理鍵盤輸入 ---
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE and self.current_state == GameState.PLAYING:
+                    self.swap_bubbles()
+                elif event.key == pygame.K_p and self.current_state == GameState.PLAYING:
+                    self.current_state = GameState.PAUSED
+                elif event.key == pygame.K_p and self.current_state == GameState.PAUSED:
+                    self.current_state = GameState.PLAYING
+            
+            # --- 處理滑鼠點擊 (在 MENU/GAMEOVER/PLAYING 狀態下) ---
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                
+                if self.current_state == GameState.MENU:
+                    self.handle_menu_click(mouse_x, mouse_y)
+                elif self.current_state == GameState.GAMEOVER:
+                    self.handle_gameover_click(mouse_x, mouse_y)
+                elif self.current_state == GameState.PLAYING:
+                    self.handle_playing_click(mouse_x, mouse_y)
+
+    def handle_menu_click(self, x, y):
+        """處理主選單按鈕點擊"""
+        start_button_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 - 50, 200, 60)
+        quit_button_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50, 200, 60)
+        
+        if start_button_rect.collidepoint(x, y):
+            self.current_state = GameState.PLAYING
+            self.reset_game() 
+        elif quit_button_rect.collidepoint(x, y):
+            self.running = False
+
+    def handle_gameover_click(self, x, y):
+        """處理遊戲結束按鈕點擊"""
+        restart_button_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50, 200, 60)
+        
+        if restart_button_rect.collidepoint(x, y):
+            self.current_state = GameState.MENU 
+
+    def handle_playing_click(self, x, y):
+        """處理遊戲進行中的點擊邏輯 (發射、道具)"""
+        
+        # 處理錘子模式下的點擊
+        if self.hammer_mode:
+            r, c = self.get_nearest_grid_position(x, y)
+            if 0 <= r < ROWS and 0 <= c < COLS and self.grid[r][c] is not None:
+                self.use_hammer(r, c)
+                return
+        
+        # 檢查是否點擊了道具按鈕
+        clicked_power_up = False
+        for pu_obj in self.power_up_objects:
+            if pu_obj.rect.collidepoint(x, y):
+                self.activate_power_up(pu_obj.type)
+                clicked_power_up = True
+                break
+        
+        if clicked_power_up:
+            return
+
+        # 處理發射泡泡
+        if y < POWER_UP_AREA_Y and not self.is_shooting and not self.hammer_mode:
+            start_x, start_y = self.shooter_bubble.center
+            dx = x - start_x
+            dy = y - start_y
+            
+            if dy < 0:
+                dist = math.sqrt(dx**2 + dy**2)
+                speed = 15
+                self.shooter_bubble.vel_x = (dx / dist) * speed
+                self.shooter_bubble.vel_y = (dy / dist) * speed
+                self.is_shooting = True
+                    
+    # --- 更新和碰撞 ---          
+    def update(self):
+        """更新遊戲狀態，包含發射、碰撞、掉落動畫和計時器"""
+        
+        if self.current_state != GameState.PLAYING: 
+            return 
+            
+        # 計時器邏輯
+        current_time = pygame.time.get_ticks()
+        time_elapsed = (current_time - self.last_time_check) / 1000.0
+        self.last_time_check = current_time
+        
+        self.time_left -= time_elapsed
+        
+        if self.time_left <= 0:
+            self.time_left = 0
+            self.current_state = GameState.GAMEOVER 
+            print(f"時間到！遊戲結束。最終分數: {self.score}")
+            return
+            
+        # 變色泡泡邏輯
+        for r in range(ROWS):
+            for c in range(COLS):
+                bubble = self.grid[r][c]
+                if bubble and bubble.is_shifter:
+                    # 每 100 幀（約 1.6 秒）變一次色
+                    if bubble.shifter_timer >= 100: 
+                        # 變換成場上已有的隨機顏色 (排除特殊色)
+                        possible_colors = [b.color for r_list in self.grid for b in r_list if b and b.color not in SPECIAL_COLORS]
+                        if possible_colors:
+                            bubble.color = random.choice(possible_colors)
+                        else:
+                             bubble.color = random.choice(COLOR_OPTIONS)
+                        bubble.shifter_timer = 0
+                    else:
+                        bubble.shifter_timer += 1
+                        
+        # 泡泡發射/移動邏輯
+        if self.is_shooting:
+            self.shooter_bubble.rect.x += self.shooter_bubble.vel_x
+            self.shooter_bubble.rect.y += self.shooter_bubble.vel_y
+            self.shooter_bubble.center = self.shooter_bubble.rect.center
+            
+            # 牆壁反彈
+            if self.shooter_bubble.rect.left <= 0 or self.shooter_bubble.rect.right >= SCREEN_WIDTH:
+                self.shooter_bubble.vel_x *= -1 
+            # 撞到頂部
+            if self.shooter_bubble.rect.top <= BUBBLE_RADIUS:
+                self.is_shooting = False
+                self.handle_collision(self.shooter_bubble, hit_top=True)
+                return 
+
+            # 網格碰撞檢查
+            for r in range(ROWS):
+                for c in range(COLS):
+                    target_bubble = self.grid[r][c]
+                    if target_bubble:
+                        distance = math.sqrt(
+                            (self.shooter_bubble.center[0] - target_bubble.center[0])**2 +
+                            (self.shooter_bubble.center[1] - target_bubble.center[1])**2
+                        )
+                        # 碰撞距離檢查
+                        if distance < BUBBLE_DIAMETER - 1:
+                            self.is_shooting = False
+                            self.handle_collision(self.shooter_bubble, target_bubble=target_bubble)
+                            return
+        
+        # 掉落泡泡動畫更新
+        new_falling_bubbles = []
+        for bubble in self.falling_bubbles:
+            bubble.fall_speed += bubble.gravity
+            bubble.rect.y += bubble.fall_speed
+            bubble.center = bubble.rect.center
+            
+            if bubble.rect.top < SCREEN_HEIGHT:
+                new_falling_bubbles.append(bubble)
+        
+        self.falling_bubbles = new_falling_bubbles 
+                            
+    def handle_collision(self, bubble, hit_top=False, target_bubble=None):
+        """處理發射泡泡的固定、特殊泡泡觸發、匹配和消除"""
+        
+        # --- 1. 計算最佳附著網格位置 (略) ---
+        if target_bubble:
+            r_target, c_target = target_bubble.row, target_bubble.col
+            best_r, best_c = -1, -1
+            min_dist_sq = float('inf')
+
+            # 檢查目標泡泡周圍的所有空鄰居
+            for r_n, c_n in self.get_neighbors(r_target, c_target):
+                if 0 <= r_n < ROWS and 0 <= c_n < COLS and self.grid[r_n][c_n] is None:
+                    temp_bubble = Bubble(WHITE, r_n, c_n, is_static=False)
+                    center_x, center_y = temp_bubble.center
+                    dist_sq = (bubble.center[0] - center_x)**2 + (bubble.center[1] - center_y)**2
+                    
+                    if dist_sq < min_dist_sq:
+                        min_dist_sq = dist_sq
+                        best_r, best_c = r_n, c_n
+            
+            if best_r != -1:
+                 r, c = best_r, best_c
+            else:
+                 r, c = self.get_nearest_grid_position(bubble.center[0], bubble.center[1])
+        
+        # --- 2. 計算頂部附著位置 ---
+        elif hit_top:
+            r, c = self.get_nearest_grid_position(bubble.center[0], BUBBLE_RADIUS + 1)
+        else:
+            self.new_shooter_bubble()
+            return
+            
+        r = max(0, min(ROWS - 1, r))
+        c = max(0, min(COLS - 1, c))
+        
+        # --- 3. 處理固定和匹配 ---
+        if self.grid[r][c] is None:
+            
+            # 1. 炸彈泡泡觸發
+            if bubble.is_bomb:
+                self.trigger_bomb(r, c)
+            
+            # 2. 普通/彩虹/變色泡泡固定
+            else:
+                # 固定泡泡到網格
+                bubble.row = r
+                bubble.col = c
+                bubble.is_static = True
+                bubble.update_position() 
+                self.grid[r][c] = bubble
+                
+                target_color = bubble.color
+                
+                # 彩虹泡泡邏輯
+                if bubble.is_rainbow:
+                    match_neighbor_color = None
+                    for r_n, c_n in self.get_neighbors(r, c):
+                        if 0 <= r_n < ROWS and 0 <= c_n < COLS and self.grid[r_n][c_n]:
+                            neighbor = self.grid[r_n][c_n]
+                            if not (neighbor.is_rainbow or neighbor.is_bomb or neighbor.is_shifter):
+                                match_neighbor_color = neighbor.color
+                                break
+                    if match_neighbor_color:
+                        target_color = match_neighbor_color
+                        self.grid[r][c].color = target_color 
+                    else:
+                        pass 
+
+                # 匹配檢查
+                matches = self.check_for_matches(r, c, target_color)
+                if self.clear_matches(matches):
+                    self.check_for_floating_bubbles()
+            
+            # 推擠計數
+            self.shots_since_push += 1
+            if self.shots_since_push >= PUSH_FREQUENCY: 
+                self.push_new_row()
+                self.shots_since_push = 0
+            
+        self.new_shooter_bubble()
+
+
+    def draw_procedural_background(self):
+        """繪製從深灰色到淺灰色/科技藍色的金屬/高科技漸變背景"""
+        
+        # 定義金屬風格的顏色：
+        METAL_DARK = (20, 20, 30) 
+        METAL_LIGHT = (70, 70, 100)  
+        
+        for y in range(SCREEN_HEIGHT):
+            # 計算漸變比例
+            ratio = y / SCREEN_HEIGHT
+            
+            # R, G, B 分量獨立計算漸變 (頂部亮，底部暗)
+            r = int(METAL_LIGHT[0] + (METAL_DARK[0] - METAL_LIGHT[0]) * ratio)
+            g = int(METAL_LIGHT[1] + (METAL_DARK[1] - METAL_LIGHT[1]) * ratio)
+            b = int(METAL_LIGHT[2] + (METAL_DARK[2] - METAL_LIGHT[2]) * ratio)
+            
+            color = (r, g, b)
+            pygame.draw.line(self.screen, color, (0, y), (SCREEN_WIDTH, y))
+
+    def draw_game_elements(self):
+        """繪製所有遊戲中的元素"""
+        
+        # 繪製網格和掉落中的泡泡
+        for r in range(ROWS):
+            for c in range(COLS):
+                if self.grid[r][c]:
+                    self.grid[r][c].draw(self.screen)
+        for bubble in self.falling_bubbles:
+            bubble.draw(self.screen)
+                    
+        # 繪製發射泡泡
+        if self.shooter_bubble:
+            self.shooter_bubble.draw(self.screen)
+
+        # 繪製發射指示器 
+        if not self.is_shooting and not self.hammer_mode:
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            start_x, start_y = self.shooter_bubble.center
+            
+            if mouse_y < start_y:
+                # 繪製輔助瞄準線
+                pygame.draw.line(self.screen, WHITE, (start_x, start_y), (mouse_x, mouse_y), 2)
+        
+        # 繪製下一個泡泡的顏色預覽
+        next_pos = (SCREEN_WIDTH // 2 + 50, SCREEN_HEIGHT - 50)
+        pygame.draw.circle(self.screen, WHITE, next_pos, BUBBLE_RADIUS // 2 + 5, 2)
+        pygame.draw.circle(self.screen, self.next_bubble_color, next_pos, BUBBLE_RADIUS // 2)
+
+        # 繪製分數和計數
+        score_text = self.score_font.render(f"Score: {self.score}", True, WHITE)
+        self.screen.blit(score_text, (10, 10)) 
+        push_text = self.score_font.render(f"Shots to Push: {PUSH_FREQUENCY - self.shots_since_push}", True, WHITE)
+        self.screen.blit(push_text, (SCREEN_WIDTH - push_text.get_width() - 10, 10))
+        
+        # 繪製計時器
+        minutes = int(self.time_left) // 60
+        seconds = int(self.time_left) % 60
+        time_text = self.score_font.render(f"Time Left: {minutes:02d}:{seconds:02d}", True, WHITE)
+        self.screen.blit(time_text, (SCREEN_WIDTH // 2 - time_text.get_width() // 2, 10))
+
+        # 繪製交換提示
+        swap_text = self.score_font.render("SPACE to SWAP | P to PAUSE", True, WHITE)
+        self.screen.blit(swap_text, (SCREEN_WIDTH // 2 - swap_text.get_width() // 2, SCREEN_HEIGHT - 20))
+
+        # 繪製道具欄位
+        pygame.draw.line(self.screen, WHITE, (0, POWER_UP_AREA_Y - 10), (SCREEN_WIDTH, POWER_UP_AREA_Y - 10), 1)
+
+        # 道具顯示和數量
+        for pu_obj in self.power_up_objects:
+            pu_obj.draw(self.screen) 
+            
+            count = self.power_up_counts[pu_obj.type]
+            count_surf = self.score_font.render(f"x{count}", True, WHITE)
+            
+            # 根據左右位置調整數量文本位置
+            if pu_obj.type == "BOMB": # 左側
+                text_x = pu_obj.rect.right + 5
+            else: # HAMMER 右側
+                text_x = pu_obj.rect.left - count_surf.get_width() - 5
+                
+            self.screen.blit(count_surf, (text_x, pu_obj.rect.centery - count_surf.get_height() // 2))
+
+        # 繪製錘子模式指示
+        if self.hammer_mode:
+            hammer_text = self.score_font.render("HAMMER MODE: Click a bubble to REMOVE it.", True, (255, 255, 0))
+            self.screen.blit(hammer_text, (SCREEN_WIDTH // 2 - hammer_text.get_width() // 2, POWER_UP_AREA_Y + 60))
+
+        # 繪製道具獲得通知 (2秒後自動消失)
+        if self.notification_text:
+            time_elapsed = pygame.time.get_ticks() - self.notification_timer
+            if time_elapsed < 2000: # 顯示 2 秒
+                # 使用更大的字體來確保顯示清晰
+                notif_surf = self.title_font.render(self.notification_text, True, (255, 255, 0))
+                notif_rect = notif_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                self.screen.blit(notif_surf, notif_rect)
+            else:
+                self.notification_text = None # 2 秒後清除通知
+
+
+    def draw_button(self, text, rect, color, hover_color):
+        """通用按鈕繪製函數 (支援懸停變色)"""
+        mouse_pos = pygame.mouse.get_pos()
+        current_color = hover_color if rect.collidepoint(mouse_pos) else color
+        
+        pygame.draw.rect(self.screen, current_color, rect, border_radius=10)
+        
+        text_surf = self.button_font.render(text, True, WHITE)
+        text_rect = text_surf.get_rect(center=rect.center)
+        self.screen.blit(text_surf, text_rect)
+        
+        return rect 
+
+    def draw_menu_screen(self):
+        """繪製主選單畫面"""
+        self.draw_procedural_background()
+        
+        title_text = self.title_font.render("Bubble Shooter Game", True, WHITE)
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4))
+        self.screen.blit(title_text, title_rect)
+        
+        # 開始遊戲按鈕
+        start_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 - 50, 200, 60)
+        self.draw_button("Start Game", start_rect, BLUE, (100, 100, 255))
+        
+        # 退出遊戲按鈕
+        quit_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50, 200, 60)
+        self.draw_button("Quit Game", quit_rect, RED, (255, 100, 100))
+
+    def draw_pause_screen(self):
+        """繪製暫停畫面"""
+        s = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        s.set_alpha(150) 
+        s.fill(BLACK)
+        self.screen.blit(s, (0, 0))
+        
+        pause_text = self.title_font.render("PAUSED", True, WHITE)
+        text_rect = pause_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        self.screen.blit(pause_text, text_rect)
+        
+        hint_text = self.score_font.render("Press P to continue", True, GRAY)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
+        self.screen.blit(hint_text, hint_rect)
+
+    def draw_gameover_screen(self):
+        """繪製遊戲結束畫面"""
+        self.draw_procedural_background()
+        
+        gameover_text = self.title_font.render("GAME OVER", True, RED)
+        go_rect = gameover_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4))
+        self.screen.blit(gameover_text, go_rect)
+
+        score_text = self.button_font.render(f"Final Score: {self.score}", True, WHITE)
+        score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        self.screen.blit(score_text, score_rect)
+        
+        restart_rect = pygame.Rect(SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50, 200, 60)
+        self.draw_button("Back to Menu", restart_rect, BLUE, (100, 100, 255))
+
+
+    def draw(self):
+        """根據當前狀態繪製畫面"""
+        
+        self.screen.fill(BLACK) 
+        
+        if self.current_state == GameState.MENU:
+            self.draw_menu_screen()
+        
+        elif self.current_state == GameState.PLAYING or self.current_state == GameState.PAUSED:
+            self.draw_procedural_background()
+            self.draw_game_elements()
+            
+            if self.current_state == GameState.PAUSED:
+                self.draw_pause_screen()
+                
+        elif self.current_state == GameState.GAMEOVER:
+            self.draw_gameover_screen()
+            
+        pygame.display.flip()
+        
+    def run(self):
+        """遊戲主循環"""
+        
+        # 啟動背景音樂 (如果載入成功)
+        if self.background_music:
+            # -1 代表無限循環播放
+            pygame.mixer.music.play(-1) 
+            
+        while self.running:
+            self.handle_input()
+            self.update()
+            self.draw()
+            self.clock.tick(FPS)
+            
+        pygame.quit()
+        sys.exit()
+
+# 運行遊戲
+if __name__ == "__main__":
+    game = Game()
+    game.run()
