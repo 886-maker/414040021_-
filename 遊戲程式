@@ -1,5 +1,11 @@
 import pygame
 import sys
+import pymunk
+# ... (其他初始化代碼)
+
+# PyMunk 物理空間初始化
+space = pymunk.Space()
+space.gravity = (0, 900) # 設定重力，Y軸正向是向下（Pygame座標系）
 
 # 遊戲常數設定
 SCREEN_WIDTH = 600
