@@ -38,4 +38,4 @@ while running:
 
 # 遊戲結束，退出 Pygame
 pygame.quit()
-sys.exit()
+sys.exit(）
