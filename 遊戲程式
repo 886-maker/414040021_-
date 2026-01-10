@@ -1,41 +1,183 @@
 import pygame
 import sys
+import pymunk
+import random # 後續特色玩法會用到
 
-# 遊戲常數設定
-SCREEN_WIDTH = 600
-SCREEN_HEIGHT = 800
-FPS = 60 # 遊戲每秒的幀數 (更新速度)
+# ------------------------------------
+# 輔助函數：創建擋板
+# ------------------------------------
+def create_flipper(space, position, is_left):
+    FLIPPER_LENGTH = 100
+    FLIPPER_HEIGHT = 15
+    pivot_x, pivot_y = position
+    mass = 100
+    
+    # 1. 創建剛體 (Body)
+    moment = pymunk.moment_for_box(mass, FLIPPER_LENGTH, FLIPPER_HEIGHT)
+    flipper_body = pymunk.Body(mass, moment)
+    flipper_body.position = position
+    
+    # 2. 創建形狀 (Shape)
+    flipper_shape = pymunk.Poly.create_box(flipper_body, (FLIPPER_LENGTH, FLIPPER_HEIGHT))
+    flipper_shape.elasticity = 0.8  
+    flipper_shape.friction = 1.0    
+    
+    # 3. 創建靜態旋轉軸 (Pivot Joint)
+    pivot_joint = pymunk.PivotJoint(flipper_body, space.static_body, (pivot_x, pivot_y))
+    
+    # 4. 創建限制角 (Rotary Limit Joint)
+    # 角度限制約 -30度 到 30度
+    limit_joint = pymunk.RotaryLimitJoint(flipper_body, space.static_body, -0.5, 0.5) 
 
-# 初始化 Pygame
+    space.add(flipper_body, flipper_shape, pivot_joint, limit_joint)
+    return flipper_body, flipper_shape
+
+# ------------------------------------
+# 輔助函數：繪製多邊形
+# ------------------------------------
+def draw_poly(shape, color, surface):
+    """將 PyMunk 的多邊形座標轉換為 Pygame 座標並繪製"""
+    points = shape.get_vertices()
+    # 轉換座標
+    converted_points = [(p.x, p.y) for p in points]
+    # 繪製
+    pygame.draw.polygon(surface, color, converted_points)
+
+# ------------------------------------
+# 1. 初始化
+# ------------------------------------
 pygame.init()
 
-# 建立遊戲視窗
+# 設置遊戲窗口參數
+SCREEN_WIDTH = 600
+SCREEN_HEIGHT = 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Python Pinball Project")
+pygame.display.set_caption("Pygame Pinball (彈珠台)")
 
-# 建立時鐘物件 (用於控制遊戲幀率)
+# 顏色定義
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+WALL_COLOR = (0, 255, 0) 
+FLIPPER_COLOR = (255, 0, 0) 
+
+# 遊戲主循環的時鐘
 clock = pygame.time.Clock()
+FPS = 60 # 每秒幀數
 
-# --- 遊戲主迴圈 (Game Loop) ---
+# --- PyMunk 物理空間初始化 ---
+space = pymunk.Space()
+space.gravity = (0, 900) # 設定重力 (Y軸向下)
+
+# --- 定義彈珠 (Ball) ---
+BALL_RADIUS = 15
+BALL_MASS = 10
+BALL_ELASTICITY = 0.9 
+
+ball_moment = pymunk.moment_for_circle(BALL_MASS, 0, BALL_RADIUS)
+ball_body = pymunk.Body(BALL_MASS, ball_moment)
+ball_body.position = (SCREEN_WIDTH // 2, 50) 
+
+ball_shape = pymunk.Circle(ball_body, BALL_RADIUS)
+ball_shape.elasticity = BALL_ELASTICITY
+ball_shape.friction = 0.5 
+
+space.add(ball_body, ball_shape)
+
+# --- 定義靜態牆壁 (Static Walls) ---
+static_body = space.static_body 
+walls_segments = []
+
+# 建立四邊牆壁
+walls_segments.append(pymunk.Segment(static_body, (0, 0), (0, SCREEN_HEIGHT), 5)) # 左牆
+walls_segments.append(pymunk.Segment(static_body, (SCREEN_WIDTH, 0), (SCREEN_WIDTH, SCREEN_HEIGHT), 5)) # 右牆
+walls_segments.append(pymunk.Segment(static_body, (0, 0), (SCREEN_WIDTH, 0), 5)) # 上牆
+walls_segments.append(pymunk.Segment(static_body, (0, SCREEN_HEIGHT), (SCREEN_WIDTH, SCREEN_HEIGHT), 5)) # 底線
+
+for wall in walls_segments:
+    wall.elasticity = 0.8
+    wall.friction = 1.0 
+    
+space.add(*walls_segments)
+
+# --- 定義擋板 (Flippers) ---
+FLIPPER_Y = SCREEN_HEIGHT - 100 
+FLIPPER_GAP = 70 
+
+# 左擋板
+left_flipper_pos = (SCREEN_WIDTH // 2 - FLIPPER_GAP, FLIPPER_Y)
+left_flipper_body, left_flipper_shape = create_flipper(space, left_flipper_pos, is_left=True)
+
+# 右擋板
+right_flipper_pos = (SCREEN_WIDTH // 2 + FLIPPER_GAP, FLIPPER_Y)
+right_flipper_body, right_flipper_shape = create_flipper(space, right_flipper_pos, is_left=False)
+
+# 創建旋轉馬達 (Motor) 用於控制擋板轉動
+left_flipper_motor = pymunk.SimpleMotor(left_flipper_body, space.static_body, 0)
+right_flipper_motor = pymunk.SimpleMotor(right_flipper_body, space.static_body, 0)
+
+space.add(left_flipper_motor, right_flipper_motor)
+
+
+# 遊戲狀態旗標
 running = True
+
+# ------------------------------------
+# 2. 遊戲主循環
+# ------------------------------------
 while running:
-    # 1. 事件處理
+    # --- 事件處理 ---
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            running = False # 按下視窗關閉按鈕
+            running = False
         
-    # 2. 遊戲狀態更新
-    # 這裡未來會更新彈珠位置等
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                running = False
+            # 左擋板控制 (按下 Z 鍵)
+            if event.key == pygame.K_z:
+                # 負值代表逆時針旋轉 (向上抬升)
+                left_flipper_motor.rate = -10 
+            # 右擋板控制 (按下 M 鍵)
+            if event.key == pygame.K_m:
+                # 正值代表順時針旋轉 (向上抬升)
+                right_flipper_motor.rate = 10
+                
+        if event.type == pygame.KEYUP:
+            if event.key == pygame.K_z:
+                left_flipper_motor.rate = 0
+            if event.key == pygame.K_m:
+                right_flipper_motor.rate = 0
+
+    # --- 遊戲邏輯更新 ---
+    dt = 1.0 / FPS
+    space.step(dt) 
+
+    # --- 繪圖區塊 ---
+    # 1. 填滿背景色
+    screen.fill(BLACK) 
     
-    # 3. 繪圖
-    screen.fill((0, 0, 0)) # 用黑色 (RGB: 0, 0, 0) 填充背景
-    
-    # 更新整個畫面顯示
+    # 2. 繪製彈珠 (Ball)
+    p = ball_body.position 
+    pygame.draw.circle(screen, WHITE, (int(p.x), int(p.y)), int(BALL_RADIUS))
+
+    # 3. 繪製牆壁 (Walls) 
+    for wall in walls_segments:
+        start_point = wall.a
+        end_point = wall.b
+        pygame.draw.line(screen, WALL_COLOR, start_point, end_point, 5)
+
+    # 4. 繪製擋板 (Flippers)
+    draw_poly(left_flipper_shape, FLIPPER_COLOR, screen)
+    draw_poly(right_flipper_shape, FLIPPER_COLOR, screen)
+
+    # 5. 更新螢幕顯示
     pygame.display.flip()
 
-    # 控制遊戲幀率
+    # --- 幀率控制 ---
     clock.tick(FPS)
 
-# 遊戲結束，退出 Pygame
+# ------------------------------------
+# 3. 遊戲結束
+# ------------------------------------
 pygame.quit()
-sys.exit(）
+sys.exit()
