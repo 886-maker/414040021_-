@@ -19,20 +19,16 @@ clock = pygame.time.Clock()
 # --- 遊戲主迴圈 (Game Loop) ---
 running = True
 while running:
-    # 1. 事件處理 (Events)
+    # 1. 事件處理
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False # 按下視窗關閉按鈕
         
-        # 這裡未來會加入鍵盤輸入事件 (例如控制擋板)
-        
-    # 2. 遊戲狀態更新 (Update Game State)
-    # (例如：更新彈珠的位置、檢查碰撞)
+    # 2. 遊戲狀態更新
+    # 這裡未來會更新彈珠位置等
     
-    # 3. 繪圖 (Drawing)
+    # 3. 繪圖
     screen.fill((0, 0, 0)) # 用黑色 (RGB: 0, 0, 0) 填充背景
-
-    # 這裡未來會繪製彈珠、擋板、障礙物
     
     # 更新整個畫面顯示
     pygame.display.flip()
