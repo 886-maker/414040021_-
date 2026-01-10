@@ -1,0 +1,45 @@
+import pygame
+import sys
+
+# 遊戲常數設定
+SCREEN_WIDTH = 600
+SCREEN_HEIGHT = 800
+FPS = 60 # 遊戲每秒的幀數 (更新速度)
+
+# 初始化 Pygame
+pygame.init()
+
+# 建立遊戲視窗
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Python Pinball Project")
+
+# 建立時鐘物件 (用於控制遊戲幀率)
+clock = pygame.time.Clock()
+
+# --- 遊戲主迴圈 (Game Loop) ---
+running = True
+while running:
+    # 1. 事件處理 (Events)
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False # 按下視窗關閉按鈕
+        
+        # 這裡未來會加入鍵盤輸入事件 (例如控制擋板)
+        
+    # 2. 遊戲狀態更新 (Update Game State)
+    # (例如：更新彈珠的位置、檢查碰撞)
+    
+    # 3. 繪圖 (Drawing)
+    screen.fill((0, 0, 0)) # 用黑色 (RGB: 0, 0, 0) 填充背景
+
+    # 這裡未來會繪製彈珠、擋板、障礙物
+    
+    # 更新整個畫面顯示
+    pygame.display.flip()
+
+    # 控制遊戲幀率
+    clock.tick(FPS)
+
+# 遊戲結束，退出 Pygame
+pygame.quit()
+sys.exit()
