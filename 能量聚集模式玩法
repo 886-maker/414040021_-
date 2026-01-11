@@ -1,0 +1,121 @@
+# 能量與速度常量
+ENERGY_BAR_MAX = 200        # 能量累積上限 (最大值)
+SHOOT_SPEED = 35            # 基礎射擊速度 (您設定的 35)
+FAST_SHOOT_SPEED = 60       # 快速模式射擊速度 (您設定的 60)
+FAST_MODE_DURATION = 5      # 快速模式持續時間 (秒)
+ENERGY_IMPACT_BUBBLE_SCORE = 10 # 能量衝擊單個泡泡得分
+class Game:
+    def __init__(self):
+        # ... (其他初始化略)
+        
+        self.ENERGY_BAR_MAX = ENERGY_BAR_MAX 
+        self.current_energy = 0        # 當前能量值 (從 0 開始)
+        self.is_impact_ready = False   # 能量是否充滿，可以發動衝擊
+        
+        self.is_fast_mode = False      # 是否處於快速模式
+        self.fast_mode_timer = 0       # 快速模式的計時器起點
+        self.FAST_MODE_DURATION = FAST_MODE_DURATION
+        
+        # ...
+        self.reset_game()
+def clear_matches(self, matches):
+        if len(matches) >= 3:
+            # ... (清除泡泡和計算得分的邏輯略)
+            
+            total_energy_gained = 0 # 新增一個變數來儲存這波消除獲得的總能量
+
+            for r, c in matches:
+                bubble = self.grid[r][c]
+                if bubble:
+                    total_energy_gained += bubble.energy  # <-- 從泡泡中獲取能量
+                    # ... (其餘清除邏輯略)
+            
+            # ... (得分邏輯略)
+            
+            # 更新能量條
+            if total_energy_gained > 0:
+                self.current_energy += total_energy_gained
+                self.current_energy = min(self.current_energy, self.ENERGY_BAR_MAX)
+                
+                # 檢查是否充滿能量
+                if self.current_energy >= self.ENERGY_BAR_MAX and not self.is_impact_ready:
+                    self.is_impact_ready = True
+                    self.notification_text = "✨ 能量衝擊就緒！(按 E 鍵)"
+                    self.notification_timer = pygame.time.get_ticks()
+
+            # ... (其餘邏輯略)
+            return cleared_count > 0
+        return False
+def trigger_energy_impact(self):
+        # 確保能量已滿且遊戲正在進行
+        if not self.is_impact_ready or self.current_state != GameState.PLAYING:
+            return
+
+        # 根據能量值決定要引爆的泡泡數量
+        detonation_count = self.current_energy // 10 
+        detonation_count = max(5, min(detonation_count, 50)) # 最少 5 個，最多 50 個
+
+        self.current_energy = 0        # 消耗所有能量
+        self.is_impact_ready = False   # 狀態重置
+        
+        # 找出所有網格上的目標泡泡
+        possible_targets = []
+        for r in range(ROWS):
+            for c in range(COLS):
+                if self.grid[r][c] is not None:
+                    possible_targets.append((r, c))
+                    
+        # 隨機選取要引爆的泡泡
+        targets_to_detonate = random.sample(possible_targets, min(detonation_count, len(possible_targets)))
+        
+        detonated_score = 0
+        for r, c in targets_to_detonate:
+            bubble = self.grid[r][c]
+            if bubble:
+                # 將泡泡標記為掉落並從網格中移除
+                bubble.is_falling = True
+                self.falling_bubbles.append(bubble)
+                self.grid[r][c] = None
+                detonated_score += ENERGY_IMPACT_BUBBLE_SCORE
+                
+        self.score += detonated_score
+        
+        if detonated_score > 0:
+            # === 啟動快速射擊模式 ===
+            self.is_fast_mode = True
+            self.fast_mode_timer = pygame.time.get_ticks()
+            
+            # 顯示通知
+            self.notification_text = f"💥 能量衝擊！快速模式啟動 ({self.FAST_MODE_DURATION} 秒)！"
+            self.notification_timer = pygame.time.get_ticks()
+            self.check_for_floating_bubbles() # 檢查是否有剩餘的浮動泡泡
+def update(self):
+        if self.current_state != GameState.PLAYING:
+            return
+            
+        current_time = pygame.time.get_ticks()
+        # ... (時間計算略)
+
+        if self.is_fast_mode:
+            # 計算從啟動到現在經過的時間
+            if (current_time - self.fast_mode_timer) / 1000.0 >= self.FAST_MODE_DURATION:
+                self.is_fast_mode = False # 關閉快速模式
+                self.notification_text = "快速模式結束。"
+                self.notification_timer = pygame.time.get_ticks()
+        
+        # ... (時間限制、泡泡更新等邏輯略)
+def _handle_playing_click(self, x, y):
+        # ... (錘子模式和道具點擊處理略)
+
+        if y < POWER_UP_AREA_Y and not self.is_shooting:
+            # ... (計算方向向量略)
+            
+            if dy < 0:
+                dist = math.sqrt(dx**2 + dy**2)
+                
+                # 根據模式選擇速度
+                speed = FAST_SHOOT_SPEED if self.is_fast_mode else SHOOT_SPEED 
+                
+                self.shooter_bubble.vel_x = (dx / dist) * speed
+                self.shooter_bubble.vel_y = (dy / dist) * speed
+                self.is_shooting = True
