@@ -1,0 +1,81 @@
+# 全局常量區 (檔案頂部)
+# ...
+RAINBOW_COLOR = (255, 105, 180)   # 彩色泡泡的顏色 (例如亮粉色)
+# ...
+# 位於 3. Bubble 類別
+class Bubble(pygame.sprite.Sprite):
+    def __init__(self, color, row, col, is_static=False):
+        # ... (其他初始化略)
+
+        self.energy = random.randint(3, 7) 
+
+        self.is_bomb = (color == BOMB_COLOR)
+        # *** [重點] 彩色泡泡的標記 ***
+        self.is_rainbow = (color == RAINBOW_COLOR) 
+        self.is_shifter = (color == SHIFTER_COLOR)
+        self.shifter_timer = 0 
+        # ...
+# 位於 3. Bubble 類別 -> draw(self, screen)
+    def draw(self, screen):
+        # ... (繪製泡泡主體和光影效果略)
+            
+        # 3. 繪製特殊標記
+        if self.is_bomb:
+            # ... (炸彈繪製略)
+        elif self.is_rainbow:
+            # *** [重點] 繪製彩色泡泡標記 (白色圓點) ***
+            center_x, center_y = self.center
+            R = BUBBLE_RADIUS
+            pygame.draw.circle(screen, WHITE, (center_x, center_y), R // 3)
+        # ...
+# 位於 4. Game 類別
+    def _handle_match_and_specials(self, bubble, r, c):
+        if bubble.is_bomb:
+            self.trigger_bomb(r, c)
+        
+        else:
+            self._attach_bubble_to_grid(bubble, r, c)
+            target_color = bubble.color
+            
+            # *** [重點] 處理彩色泡泡變色邏輯 ***
+            if bubble.is_rainbow:
+                match_neighbor_color = None
+                
+                # 遍歷周圍鄰居，找出第一個非特殊泡泡的顏色作為匹配目標
+                for r_n, c_n in self.get_neighbors(r, c):
+                    if 0 <= r_n < ROWS and 0 <= c_n < COLS and self.grid[r_n][c_n]:
+                        neighbor = self.grid[r_n][c_n]
+                        # 排除其他特殊泡泡，確保它能變成普通顏色
+                        if not (neighbor.is_rainbow or neighbor.is_bomb or neighbor.is_shifter):
+                            match_neighbor_color = neighbor.color
+                            break # 找到目標顏色後即停止
+                            
+                if match_neighbor_color:
+                    target_color = match_neighbor_color
+                    # 永久改變網格上這個彩色泡泡的顏色
+                    self.grid[r][c].color = target_color 
+                # 如果周圍沒有普通泡泡，則保持 RAINBOW_COLOR，等待下次消除
+            
+            # 使用確認的 target_color 進行匹配檢查
+            matches = self.check_for_matches(r, c, target_color)
+            if self.clear_matches(matches):
+                self.check_for_floating_bubbles()
+# 位於 Game._setup_grid (遊戲初始化網格)
+    def _setup_grid(self):
+        # ... (循環略)
+        for c in range(COLS):
+            # ...
+            else:
+                rand = random.random()
+                color = random.choice(COLOR_OPTIONS[:4])
+                
+                if rand < 0.02:
+                     color = BOMB_COLOR
+                # *** [重點] 設置彩色泡泡生成機率 (例如 2%) ***
+                elif rand < 0.04:
+                     color = RAINBOW_COLOR 
+                elif rand < 0.06:
+                     color = SHIFTER_COLOR
+                
+                bubble = Bubble(color, r, c, is_static=True) 
+        # ...
