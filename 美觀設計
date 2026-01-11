@@ -1,0 +1,237 @@
+# --- 遊戲全局常量與設定 ---
+# ... (略去其他設定)
+
+# **[新增] 背景與遊戲區域顏色**
+FRAME_COLOR = (200, 200, 200) # 遊戲邊框顏色
+GAME_AREA_BG = (255, 255, 255) # 遊戲區域背景 (白色)
+SOFT_YELLOW = (255, 240, 200) # 淺黃色 (用於背景漸變的亮色)
+SOFT_ORANGE = (255, 220, 180) # 淺橙色 (用於背景漸變的暗色)
+
+# **[修改] HUD 顏色**
+HUD_BG_COLOR = (250, 250, 250, 220) # 提高透明度，讓背景圖案更透出
+ENERGY_COLOR = (100, 200, 0)        # 截圖中的綠色能量條
+
+# --- 泡泡與網格設定 ---
+# 確保網格區域位置正確，配合圓潤邊框
+GRID_START_Y = 100 # 將網格向下移動，為 HUD 留出空間
+GRID_WIDTH = COLS * BUBBLE_DIAMETER
+GRID_HEIGHT = ROWS * int(BUBBLE_DIAMETER * 0.866)
+GRID_X_OFFSET = (SCREEN_WIDTH - GRID_WIDTH) // 2
+# --- 3. Bubble 類別 (泡泡物件) ---
+class Bubble(pygame.sprite.Sprite):
+    # ... (init 和 update_position 保持不變)
+    
+    def draw(self, screen):
+        """繪製泡泡，包含特殊標記、動態顏色和高光效果 (模仿截圖)"""
+        draw_color = self.color
+        
+        # 變色泡泡的動態閃爍視覺效果 (保持不變)
+        if self.is_shifter:
+            time_ms = pygame.time.get_ticks()
+            current_index = (time_ms // 100) % len(COLOR_OPTIONS)
+            draw_color = COLOR_OPTIONS[current_index]
+            
+        center_x, center_y = self.center
+        R = BUBBLE_RADIUS
+            
+        # 1. 繪製主體 (略微深色陰影)
+        shadow_color = (max(0, draw_color[0] - 30), max(0, draw_color[1] - 30), max(0, draw_color[2] - 30))
+        pygame.draw.circle(screen, shadow_color, (center_x + 1, center_y + 1), R, 0)
+        pygame.draw.circle(screen, draw_color, (center_x, center_y), R, 0)
+        
+        # 2. 繪製高光效果 (白色圓點和漸變)
+        # 高光 1 (白色)
+        highlight_radius = R // 2
+        highlight_center = (center_x - R // 3, center_y - R // 3)
+        pygame.draw.circle(screen, WHITE, highlight_center, highlight_radius, 0)
+        
+        # 高光 2 (更亮的小點)
+        pygame.draw.circle(screen, WHITE, (center_x - R // 2, center_y - R // 2), R // 5, 0)
+        
+        # 3. 繪製泡泡邊框 (可選，讓輪廓更清晰)
+        pygame.draw.circle(screen, (0, 0, 0, 50), (center_x, center_y), R, 1)
+
+
+        # 4. 繪製特殊標記 (保持不變)
+        # ... (繪製炸彈 X、彩虹圓點、變色問號等邏輯)
+        if self.is_bomb:
+            # 簡化炸彈標記，截圖中是黑色的 X
+            pygame.draw.line(screen, BLACK, (center_x - 10, center_y - 10), (center_x + 10, center_y + 10), 3)
+            pygame.draw.line(screen, BLACK, (center_x + 10, center_y - 10), (center_x - 10, center_y + 10), 3)
+        elif self.is_rainbow:
+            pygame.draw.circle(screen, WHITE, (center_x, center_y), R // 3)
+        elif self.is_shifter:
+            font = pygame.font.SysFont('Arial', R + 5, bold=True)
+            text_surf = font.render("?", True, BLACK)
+            text_rect = text_surf.get_rect(center=(center_x, center_y))
+            screen.blit(text_surf, text_rect)
+            
+        # 5. 繪製能量值 (截圖中沒有能量值，建議移除或隱藏)
+        # 註釋掉這段代碼，讓泡泡保持美觀
+        # if not self.is_bomb and not self.is_rainbow and not self.is_shifter and self.energy > 0:
+        #     ... (略去能量值繪製)
+# --- 4. Game 類別：遊戲主邏輯 ---
+# ...
+
+def draw_procedural_background(self):
+    """繪製淺黃/淺橙漸變背景 (模仿截圖)"""
+    for y in range(SCREEN_HEIGHT):
+        ratio = y / SCREEN_HEIGHT
+        # 從淺橙色 (SOFT_ORANGE) 漸變到淺黃色 (SOFT_YELLOW)
+        r = int(SOFT_ORANGE[0] + (SOFT_YELLOW[0] - SOFT_ORANGE[0]) * ratio)
+        g = int(SOFT_ORANGE[1] + (SOFT_YELLOW[1] - SOFT_ORANGE[1]) * ratio)
+        b = int(SOFT_ORANGE[2] + (SOFT_YELLOW[2] - SOFT_ORANGE[2]) * ratio)
+        color = (r, g, b)
+        pygame.draw.line(self.screen, color, (0, y), (SCREEN_WIDTH, y))
+
+def draw_game_elements(self):
+    """繪製所有遊戲進行中的元素 (實現截圖中的圓潤邊框和 HUD)"""
+    
+    # 1. 繪製背景 (使用我們定義的漸變)
+    if self.background_image:
+        self.screen.blit(self.background_image, (0, 0))
+    else:
+        self.draw_procedural_background() 
+
+    # 2. 繪製遊戲區域圓潤邊框
+    
+    # 遊戲區域的整體 Rect (包含泡泡網格和底下的發射器區域)
+    # 我們讓遊戲區域從網格頂部延伸到道具欄下方
+    GAME_RECT = pygame.Rect(
+        GRID_X_OFFSET - 5, GRID_START_Y - 5, 
+        GRID_WIDTH + 10, POWER_UP_AREA_Y - GRID_START_Y + 10
+    )
+    
+    # 繪製圓角邊框 (使用兩個 Rect 創造立體感)
+    # 內層 (淺色背景)
+    pygame.draw.rect(self.screen, GAME_AREA_BG, GAME_RECT, border_radius=15)
+    # 外層邊框 (深色邊緣)
+    pygame.draw.rect(self.screen, FRAME_COLOR, GAME_RECT, border_radius=15, width=3)
+
+    # 3. 繪製網格和掉落中的泡泡 (網格座標需配合 GRID_START_Y 調整)
+    for r in range(ROWS):
+        for c in range(COLS):
+            if self.grid[r][c]:
+                # 必須更新泡泡的繪製位置，因為我們移動了網格
+                bubble = self.grid[r][c]
+                x_offset = 0 if r % 2 == 0 else BUBBLE_RADIUS
+                
+                # [核心調整] 計算實際繪製座標
+                x = c * BUBBLE_DIAMETER + x_offset + BUBBLE_RADIUS + GRID_X_OFFSET
+                y = r * int(BUBBLE_DIAMETER * 0.866) + BUBBLE_RADIUS + GRID_START_Y
+                bubble.center = (x, y)
+                bubble.rect.center = bubble.center
+                
+                bubble.draw(self.screen)
+                
+    for bubble in self.falling_bubbles:
+        bubble.draw(self.screen)
+        
+    # --- 4. 繪製 HUD 頂部狀態欄 (模仿截圖) ---
+    HUD_HEIGHT = 50
+    hud_surface = pygame.Surface((SCREEN_WIDTH, HUD_HEIGHT), pygame.SRCALPHA)
+    hud_surface.fill(HUD_BG_COLOR)
+    self.screen.blit(hud_surface, (0, 0))
+    
+    Y_CENTER = HUD_HEIGHT // 2
+
+    # A. 分數 (左上角)
+    score_text = self.score_font.render(f"Score: {self.score}", True, BLACK)
+    self.screen.blit(score_text, (10, Y_CENTER - score_text.get_height() // 2))
+    
+    # B. 時間/推擠 (中央偏左)
+    minutes = int(self.time_left) // 60
+    seconds = int(self.time_left) % 60
+    time_text = self.score_font.render(f"{minutes:02d}:{seconds:02d}", True, BLACK)
+    self.screen.blit(time_text, (140, Y_CENTER - time_text.get_height() // 2))
+    
+    push_text = self.score_font.render(f"Shots to Push: {PUSH_FREQUENCY - self.shots_since_push}", True, BLACK)
+    self.screen.blit(push_text, (220, Y_CENTER - push_text.get_height() // 2))
+    
+    # C. 能量條 (右側)
+    bar_width = 150
+    bar_height = 20
+    bar_x = SCREEN_WIDTH - bar_width - 10
+    bar_y = Y_CENTER - bar_height // 2
+    
+    pygame.draw.rect(self.screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height), border_radius=5)
+    fill_width = (self.current_energy / self.ENERGY_BAR_MAX) * bar_width
+    fill_color = ENERGY_COLOR if not self.is_impact_ready else (255, 0, 0) # 充滿時變紅色
+    pygame.draw.rect(self.screen, fill_color, (bar_x, bar_y, fill_width, bar_height), border_radius=5)
+    
+    energy_label = "ENERGY READY! (E)" if self.is_impact_ready else "ENERGY"
+    energy_text = self.score_font.render(energy_label, True, WHITE)
+    energy_rect = energy_text.get_rect(center=(bar_x + bar_width // 2, bar_y + bar_height // 2))
+    self.screen.blit(energy_text, energy_rect)
+    
+    # 5. 繪製發射泡泡 (調整位置)
+    shooter_pos = (SCREEN_WIDTH // 2, POWER_UP_AREA_Y - 40)
+    
+    if self.shooter_bubble:
+        self.shooter_bubble.rect.center = shooter_pos
+        self.shooter_bubble.center = shooter_pos
+        self.shooter_bubble.draw(self.screen)
+        
+    # 6. 繪製預覽泡泡 (調整位置)
+    next_pos = (SCREEN_WIDTH // 2 + 70, POWER_UP_AREA_Y - 40)
+    pygame.draw.circle(self.screen, BLACK, next_pos, BUBBLE_RADIUS // 2 + 5, 2) 
+    pygame.draw.circle(self.screen, self.next_bubble_color, next_pos, BUBBLE_RADIUS // 2)
+
+    # 7. 快速模式提示 (模仿截圖的中央大字)
+    if self.is_fast_mode:
+        fast_text = self.title_font.render("FAST MODE!", True, RED)
+        # 截圖中有兩顆小火箭
+        self.screen.blit(fast_text, fast_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)))
+        
+        # 繪製小火箭 (如果沒有圖片，可以畫三角形代替)
+        # 假設火箭是紅色的三角形
+        rocket_color = (255, 0, 0)
+        rocket_size = 20
+        
+        # 左火箭
+        points_left = [
+            (SCREEN_WIDTH // 2 - fast_text.get_width() // 2 - 40, SCREEN_HEIGHT // 2), 
+            (SCREEN_WIDTH // 2 - fast_text.get_width() // 2 - 40 - rocket_size, SCREEN_HEIGHT // 2 - rocket_size // 2),
+            (SCREEN_WIDTH // 2 - fast_text.get_width() // 2 - 40 - rocket_size, SCREEN_HEIGHT // 2 + rocket_size // 2)
+        ]
+        pygame.draw.polygon(self.screen, rocket_color, points_left)
+        
+        # 右火箭
+        points_right = [
+            (SCREEN_WIDTH // 2 + fast_text.get_width() // 2 + 40, SCREEN_HEIGHT // 2), 
+            (SCREEN_WIDTH // 2 + fast_text.get_width() // 2 + 40 + rocket_size, SCREEN_HEIGHT // 2 - rocket_size // 2),
+            (SCREEN_WIDTH // 2 + fast_text.get_width() // 2 + 40 + rocket_size, SCREEN_HEIGHT // 2 + rocket_size // 2)
+        ]
+        pygame.draw.polygon(self.screen, rocket_color, points_right)
+
+
+    # 8. 繪製道具欄位 (需要調整 POWER_UP_AREA_Y 讓它剛好在遊戲區域下面)
+    # POWER_UP_AREA_Y = SCREEN_HEIGHT - 120 (保持這個位置，讓它在底部)
+    # 道具欄位的繪製方法保持不變，它已經在 draw_game_elements 的末尾。
+    
+    # 9. 繪製可愛的點狀瞄準線 (保持不變)
+    # ... (瞄準線邏輯，在原程式碼的 draw_game_elements 中)
+
+    # ... (其他文字提示、通知等保持不變)
+
+# 確保在 Game 類中的 _setup_grid 方法裡，泡泡的 row/col 轉 center 也要加上 GRID_START_Y 
+# 但最好的做法是，只在 draw_game_elements 中調整泡泡的 center 座標，讓網格邏輯保持簡潔。
+# 檢查一下原程式碼中的 _setup_grid 是否需要調整，如果它只是初始化 r, c 則不用動。
+
+# 建議在 reset_game 結束前，呼叫一次 update_all_bubble_positions() 
+# 這樣可以確保所有網格泡泡的 center 座標是正確的。
+
+def update_all_bubble_positions(self):
+    """手動更新所有網格泡泡的像素座標 (配合新的 GRID_START_Y)"""
+    for r in range(ROWS):
+        for c in range(COLS):
+            bubble = self.grid[r][c]
+            if bubble:
+                x_offset = 0 if r % 2 == 0 else BUBBLE_RADIUS
+                x = c * BUBBLE_DIAMETER + x_offset + BUBBLE_RADIUS + GRID_X_OFFSET
+                y = r * int(BUBBLE_DIAMETER * 0.866) + BUBBLE_RADIUS + GRID_START_Y
+                bubble.center = (x, y)
+                bubble.rect.center = bubble.center
+                
+# 在 `reset_game` 的最後一行加入：
+# self.update_all_bubble_positions()
