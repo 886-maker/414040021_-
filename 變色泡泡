@@ -1,0 +1,95 @@
+# 全局常量區 (檔案頂部)
+# ...
+SHIFTER_COLOR = (255, 255, 0)     # 變色泡泡的佔位顏色 (例如黃色)
+# ...
+# 位於 3. Bubble 類別
+class Bubble(pygame.sprite.Sprite):
+    def __init__(self, color, row, col, is_static=False):
+        # ... (其他初始化略)
+
+        self.energy = random.randint(3, 7) 
+
+        self.is_bomb = (color == BOMB_COLOR)
+        self.is_rainbow = (color == RAINBOW_COLOR)
+        # *** [重點] 變色泡泡的標記及計時器 ***
+        self.is_shifter = (color == SHIFTER_COLOR)
+        self.shifter_timer = 0       # 用於控制變色頻率
+        # ...
+# 位於 3. Bubble 類別 -> draw(self, screen)
+    def draw(self, screen):
+        draw_color = self.color
+        center_x, center_y = self.center
+        R = BUBBLE_RADIUS
+        
+        # *** [重點] 處理變色邏輯 ***
+        if self.is_shifter:
+            time_ms = pygame.time.get_ticks()
+            # 根據時間戳選擇顏色 (每 100 毫秒換一次顏色)
+            current_index = (time_ms // 100) % len(COLOR_OPTIONS)
+            draw_color = COLOR_OPTIONS[current_index] # 繪製顏色為動態色
+            
+        # 1. 繪製主體 (使用動態顏色)
+        pygame.draw.circle(screen, draw_color, self.center, R)
+        
+        # 2. 繪製光影效果 (略)
+            
+        # 3. 繪製特殊標記
+        if self.is_bomb:
+            # ... (炸彈繪製略)
+        elif self.is_rainbow:
+            # ... (彩色泡泡繪製略)
+        elif self.is_shifter:
+            # *** [重點] 繪製問號標記 ***
+            font = pygame.font.SysFont('Arial', R + 5, bold=True)
+            text_surf = font.render("?", True, BLACK)
+            text_rect = text_surf.get_rect(center=self.center)
+            screen.blit(text_surf, text_rect)
+            
+        # ... (繪製能量值略)
+# 位於 4. Game 類別
+    def check_for_matches(self, r, c, target_color):
+        if self.grid[r][c] is None:
+            return []
+            
+        queue = [(r, c)]
+        visited = set([(r, c)])
+        matched_bubbles = []
+
+        while queue:
+            curr_r, curr_c = queue.pop(0)
+            matched_bubbles.append((curr_r, curr_c))
+
+            for next_r, next_c in self.get_neighbors(curr_r, curr_c):
+                if 0 <= next_r < ROWS and 0 <= next_c < COLS:
+                    neighbor = self.grid[next_r][next_c]
+                    
+                    if neighbor and (next_r, next_c) not in visited:
+                        # *** [重點] 變色泡泡作為萬用牌的邏輯 ***
+                        is_match = (neighbor.color == target_color or 
+                                    neighbor.is_rainbow or 
+                                    neighbor.is_shifter) # <--- 只要是變色泡泡就匹配
+                        
+                        if is_match:
+                            visited.add((next_r, next_c))
+                            queue.append((next_r, next_c))
+                            
+        return matched_bubbles
+# 位於 Game._setup_grid (遊戲初始化網格)
+    def _setup_grid(self):
+        # ... (循環略)
+        for c in range(COLS):
+            # ...
+            else:
+                rand = random.random()
+                color = random.choice(COLOR_OPTIONS[:4])
+                
+                if rand < 0.02:
+                     color = BOMB_COLOR
+                elif rand < 0.04:
+                     color = RAINBOW_COLOR
+                # *** [重點] 設置變色泡泡生成機率 (例如 2%) ***
+                elif rand < 0.06:
+                     color = SHIFTER_COLOR
+                
+                bubble = Bubble(color, r, c, is_static=True) 
+        # ...
