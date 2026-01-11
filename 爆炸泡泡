@@ -1,0 +1,96 @@
+# 全局常量區 (檔案頂部)
+BOMB_COLOR = (200, 200, 200)      # 炸彈的顏色 
+# ...
+# 位於 3. Bubble 類別
+class Bubble(pygame.sprite.Sprite):
+    def __init__(self, color, row, col, is_static=False):
+        # ... (其他初始化略)
+
+        self.energy = random.randint(3, 7) 
+
+        # *** [重點] 爆炸泡泡的標記 ***
+        self.is_bomb = (color == BOMB_COLOR) 
+        self.is_rainbow = (color == RAINBOW_COLOR)
+        self.is_shifter = (color == SHIFTER_COLOR)
+        self.shifter_timer = 0 
+        # ...
+# 位於 3. Bubble 類別 -> draw(self, screen)
+    def draw(self, screen):
+        # ... (繪製泡泡主體和光影效果略)
+            
+        # 3. 繪製特殊標記
+        if self.is_bomb:
+            # *** [重點] 繪製炸彈標記 (一個黑色的 X) ***
+            center_x, center_y = self.center
+            pygame.draw.line(screen, BLACK, (center_x - 10, center_y - 10), (center_x + 10, center_y + 10), 3)
+            pygame.draw.line(screen, BLACK, (center_x + 10, center_y - 10), (center_x - 10, center_y + 10), 3)
+        elif self.is_rainbow:
+            # ... (彩虹泡泡繪製略)
+        # ...
+# 位於 4. Game 類別
+    def _handle_match_and_specials(self, bubble, r, c):
+        # *** [重點] 檢查射出的泡泡是否為炸彈 ***
+        if bubble.is_bomb:
+            self.trigger_bomb(r, c) # 如果是炸彈，直接觸發爆炸
+        
+        else:
+            # 如果不是炸彈，才將其附著到網格上，並檢查是否匹配
+            self._attach_bubble_to_grid(bubble, r, c)
+            target_color = bubble.color
+            
+            # ... (處理彩虹和變色泡泡的邏輯略)
+            
+            matches = self.check_for_matches(r, c, target_color)
+            if self.clear_matches(matches):
+                self.check_for_floating_bubbles()
+# 位於 4. Game 類別
+    def trigger_bomb(self, r, c):
+        """處理炸彈爆炸的效果：清除炸彈本身及其周圍一圈的泡泡。"""
+        
+        # 1. 收集要清除的泡泡座標 (炸彈中心 + 所有鄰居)
+        bubbles_to_clear = set([(r, c)])
+        
+        # 透過 get_neighbors 取得周圍 6 個鄰居
+        for r_n, c_n in self.get_neighbors(r, c):
+            if 0 <= r_n < ROWS and 0 <= c_n < COLS and self.grid[r_n][c_n]:
+                bubbles_to_clear.add((r_n, c_n))
+                
+        cleared_any = False
+        
+        # 2. 清除這些泡泡
+        for r_clear, c_clear in bubbles_to_clear:
+            bubble = self.grid[r_clear][c_clear]
+            if bubble:
+                # 將泡泡標記為掉落 (會讓它在下一幀向下移動並消失)
+                bubble.is_falling = True
+                self.falling_bubbles.append(bubble)
+                
+                # 從網格中移除
+                self.grid[r_clear][c_clear] = None
+                self.score += 20 # 每次爆炸得分
+                cleared_any = True
+                
+        # 3. 檢查是否有浮動泡泡
+        if cleared_any:
+            self.check_for_floating_bubbles()
+# 位於 Game._setup_grid (遊戲初始化網格)
+    def _setup_grid(self):
+        # ... (循環略)
+        for c in range(COLS):
+            bubble = None
+            if r < 5:
+                # ... (檢查邊界略)
+                else:
+                    rand = random.random()
+                    color = random.choice(COLOR_OPTIONS[:4])
+                    
+                    # *** [重點] 設置炸彈生成機率 (例如 2%) ***
+                    if rand < 0.02:
+                         color = BOMB_COLOR
+                    elif rand < 0.04:
+                         color = RAINBOW_COLOR
+                    elif rand < 0.06:
+                         color = SHIFTER_COLOR
+                    
+                    bubble = Bubble(color, r, c, is_static=True) 
+            # ...
